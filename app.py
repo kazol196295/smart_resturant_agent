@@ -254,38 +254,68 @@ agent = initialize_agent(
 )
 
 # =====================================================
-# MAIN CHAT AREA
+# MAIN LAYOUT (CHAT LEFT, HISTORY RIGHT)
 # =====================================================
-st.title(f"🤖 Smart Restaurant AI")
-st.caption(f"Welcome back, {st.session_state.username} 👋")
+# Create two columns: col1 for Chat (70%), col2 for History/Bill (30%)
+col1, col2 = st.columns([0.7, 0.3])
 
-# Previous Orders Section
-st.subheader("📜 Order History")
-if orders:
-    for item, price, time in orders:
-        st.write(f"{item} | {price} tk | {time}")
-else:
-    st.info("No previous orders yet.")
+with col1:
+    st.title(f"🤖 Smart Restaurant AI")
+    st.caption(f"Welcome back, {st.session_state.username} 👋")
 
-# Chat History
-for msg in st.session_state.messages:
-    with st.chat_message(msg["role"]):
-        st.markdown(msg["content"])
+    # Display Chat History
+    for msg in st.session_state.messages:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
 
-# Chat Input
-if prompt := st.chat_input("How can I help you today?"):
-    st.session_state.messages.append({"role": "user", "content": prompt})
+    # Chat Input
+    if prompt := st.chat_input("How can I help you today?"):
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        
+        # Rerun to show user message immediately before AI thinks
+        st.rerun()
 
-    with st.chat_message("user"):
-        st.markdown(prompt)
+# This handles the AI response after the rerun
+if st.session_state.messages and st.session_state.messages[-1]["role"] == "user":
+    with col1:
+        with st.chat_message("assistant"):
+            with st.spinner("🤖 AI is thinking..."):
+                current_prompt = st.session_state.messages[-1]["content"]
+                response = agent({"input": current_prompt})["output"]
+                st.markdown(response)
+                st.session_state.messages.append({"role": "assistant", "content": response})
+                # Rerun to update the Order History in the right column
+                st.rerun()
 
-    with st.chat_message("assistant"):
-        with st.spinner("🤖 AI is thinking..."):
-            response = agent({"input": prompt})["output"]
-
-        st.markdown(response)
-
-    st.session_state.messages.append({
-        "role": "assistant",
-        "content": response
-    })
+# =====================================================
+# RIGHT SIDEBAR / DASHBOARD (ALWAYS UPDATED)
+# =====================================================
+with col2:
+    st.subheader("📜 Live Bill & History")
+    
+    # Refresh orders from database
+    current_orders = get_user_orders(st.session_state.user_id)
+    
+    if current_orders:
+        total_bill = 0
+        # Display as a clean table or list
+        for item, price, time in current_orders:
+            # Format timestamp for better readability
+            clean_time = time.split(".")[0] # Removes microseconds
+            st.write(f"**{item.capitalize()}**")
+            st.caption(f"{price} tk | {clean_time}")
+            total_bill += price
+        
+        st.divider()
+        st.metric(label="Total Amount Due", value=f"{total_bill} tk")
+        
+        if st.button("💳 Checkout / Generate Bill", use_container_width=True):
+            st.balloons()
+            st.success("Finalizing your bill... Proceed to payment.")
+    else:
+        st.info("No orders placed yet. Start chatting to order!")
+    
+    # Optional: Visual status indicator
+    st.divider()
+    st.write("### System Status")
+    st.success("Connected to Groq Cloud")
