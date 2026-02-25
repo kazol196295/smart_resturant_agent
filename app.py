@@ -49,7 +49,7 @@ if "messages" not in st.session_state:
 # -------------------------------
 # Make sure GROQ_API_KEY is set in Streamlit Secrets
 llm = ChatGroq(
-    model="llama3-8b-8192",
+    model="llama-3.1-8b-instant",
     temperature=0
 )
 
