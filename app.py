@@ -253,6 +253,58 @@ agent = initialize_agent(
     handle_parsing_errors=True
 )
 
+
+
+# =====================================================
+# PDF BILL GENERATION
+# =====================================================
+
+from reportlab.lib.pagesizes import letter
+from reportlab.pdfgen import canvas
+from io import BytesIO
+
+def generate_pdf_bill(username, orders, total):
+    buffer = BytesIO()
+    p = canvas.Canvas(buffer, pagesize=letter)
+    width, height = letter
+
+    # Header
+    p.setFont("Helvetica-Bold", 20)
+    p.drawString(200, height - 50, "RESTAURANT RECEIPT")
+    
+    p.setFont("Helvetica", 12)
+    p.drawString(50, height - 100, f"Customer: {username}")
+    p.drawString(50, height - 120, f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+    p.line(50, height - 130, 550, height - 130)
+
+    # Table Headers
+    p.drawString(50, height - 150, "Item")
+    p.drawString(400, height - 150, "Price (tk)")
+    p.line(50, height - 155, 550, height - 155)
+
+    # Order Items
+    y = height - 180
+    for item, price, _ in orders:
+        p.drawString(50, y, item.capitalize())
+        p.drawString(400, y, f"{price}")
+        y -= 20
+        if y < 50:  # Page break logic
+            p.showPage()
+            y = height - 50
+
+    # Total
+    p.line(50, y, 550, y)
+    p.setFont("Helvetica-Bold", 14)
+    p.drawString(50, y - 30, f"TOTAL AMOUNT: {total} tk")
+    
+    p.setFont("Helvetica-Oblique", 10)
+    p.drawString(200, 30, "Thank you for dining with us!")
+
+    p.showPage()
+    p.save()
+    buffer.seek(0)
+    return buffer
+
 # =====================================================
 # MAIN LAYOUT (CHAT LEFT, HISTORY RIGHT)
 # =====================================================
@@ -292,30 +344,26 @@ if st.session_state.messages and st.session_state.messages[-1]["role"] == "user"
 # =====================================================
 with col2:
     st.subheader("📜 Live Bill & History")
-    
-    # Refresh orders from database
     current_orders = get_user_orders(st.session_state.user_id)
     
     if current_orders:
-        total_bill = 0
-        # Display as a clean table or list
+        total_bill = sum(order[1] for order in current_orders)
+        
         for item, price, time in current_orders:
-            # Format timestamp for better readability
-            clean_time = time.split(".")[0] # Removes microseconds
-            st.write(f"**{item.capitalize()}**")
-            st.caption(f"{price} tk | {clean_time}")
-            total_bill += price
+            st.write(f"**{item.capitalize()}** - {price} tk")
         
         st.divider()
-        st.metric(label="Total Amount Due", value=f"{total_bill} tk")
+        st.metric(label="Total Amount", value=f"{total_bill} tk")
         
-        if st.button("💳 Checkout / Generate Bill", use_container_width=True):
-            st.balloons()
-            st.success("Finalizing your bill... Proceed to payment.")
+        # --- PDF BILL GENERATION ---
+        pdf_file = generate_pdf_bill(st.session_state.username, current_orders, total_bill)
+        
+        st.download_button(
+            label="📄 Download PDF Bill",
+            data=pdf_file,
+            file_name=f"bill_{st.session_state.username}.pdf",
+            mime="application/pdf",
+            use_container_width=True
+        )
     else:
-        st.info("No orders placed yet. Start chatting to order!")
-    
-    # Optional: Visual status indicator
-    st.divider()
-    st.write("### System Status")
-    st.success("Connected to Groq Cloud")
+        st.info("No orders yet.")
