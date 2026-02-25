@@ -1,30 +1,29 @@
-# =========================
-# SMART RESTAURANT AI PRO+
-# =========================
-
 import streamlit as st
 import hashlib
 import sqlite3
 import re
 from datetime import datetime
-import matplotlib.pyplot as plt
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table
-from reportlab.lib.styles import ParagraphStyle
-from reportlab.lib import colors
-from reportlab.lib.units import inch
-from reportlab.lib.styles import getSampleStyleSheet
-from reportlab.platypus import TableStyle
 from langchain_groq import ChatGroq
 from langchain.agents import tool, initialize_agent, AgentType
 from langchain.memory import ConversationBufferMemory
-import os
 
-st.set_page_config(page_title="Smart Restaurant Pro", layout="wide")
+# =====================================================
+# PAGE CONFIG
+# =====================================================
+st.set_page_config(
+    page_title="Smart Restaurant AI",
+    page_icon="🍕",
+    layout="wide"
+)
 
-# =========================
+st.markdown(
+    "<style>div.block-container{padding-top:1rem;}</style>",
+    unsafe_allow_html=True
+)
+
+# =====================================================
 # DATABASE
-# =========================
-
+# =====================================================
 conn = sqlite3.connect("restaurant.db", check_same_thread=False)
 c = conn.cursor()
 
@@ -32,9 +31,7 @@ c.execute("""
 CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     username TEXT UNIQUE,
-    password_hash TEXT,
-    loyalty_points INTEGER DEFAULT 0,
-    role TEXT DEFAULT 'user'
+    password_hash TEXT
 )
 """)
 
@@ -43,227 +40,252 @@ CREATE TABLE IF NOT EXISTS orders (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER,
     item TEXT,
-    quantity INTEGER,
     price REAL,
     timestamp TEXT
 )
 """)
 
-c.execute("""
-CREATE TABLE IF NOT EXISTS favorites (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER,
-    item TEXT
-)
-""")
-
 conn.commit()
 
-# =========================
-# MENU
-# =========================
-
+# =====================================================
+# MENU DATA
+# =====================================================
 MENU = {
     "pizza": 500,
     "burger": 300,
     "pasta": 400
 }
 
-# =========================
-# AUTH
-# =========================
+POPULAR_ITEMS = ["pizza", "burger"]
 
-def hash_password(p):
-    return hashlib.sha256(p.encode()).hexdigest()
+# =====================================================
+# SESSION STATE
+# =====================================================
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
+if "username" not in st.session_state:
+    st.session_state.username = ""
+if "user_id" not in st.session_state:
+    st.session_state.user_id = None
+if "messages" not in st.session_state:
+    st.session_state.messages = []
 
-def register(username, password):
+# =====================================================
+# AUTH FUNCTIONS
+# =====================================================
+def hash_password(password):
+    return hashlib.sha256(password.encode()).hexdigest()
+
+def register_user(username, password):
     try:
         c.execute(
-            "INSERT INTO users (username, password_hash) VALUES (?,?)",
+            "INSERT INTO users (username, password_hash) VALUES (?, ?)",
             (username, hash_password(password))
         )
         conn.commit()
-        st.success("Registered successfully")
-    except:
-        st.error("Username exists")
+        st.success("Registered successfully! Please login.")
+    except sqlite3.IntegrityError:
+        st.error("Username already exists.")
 
-def login(username, password):
-    c.execute("SELECT id, role FROM users WHERE username=? AND password_hash=?",
-              (username, hash_password(password)))
-    return c.fetchone()
+def authenticate_user(username, password):
+    c.execute(
+        "SELECT id FROM users WHERE username=? AND password_hash=?",
+        (username, hash_password(password))
+    )
+    result = c.fetchone()
+    return result[0] if result else None
 
-# =========================
-# SESSION STATE
-# =========================
+def get_user_orders(user_id):
+    c.execute(
+        "SELECT item, price, timestamp FROM orders WHERE user_id=? ORDER BY id DESC",
+        (user_id,)
+    )
+    return c.fetchall()
 
-if "user" not in st.session_state:
-    st.session_state.user = None
+# =====================================================
+# LOGIN UI
+# =====================================================
+def login_ui():
+    st.sidebar.title("🔐 Login / Register")
+    mode = st.sidebar.radio("Select Mode", ["Login", "Register"])
 
-# =========================
-# LOGIN PAGE
-# =========================
-
-if not st.session_state.user:
-    st.title("Login / Register")
-
-    mode = st.radio("Select", ["Login", "Register"])
-    u = st.text_input("Username")
-    p = st.text_input("Password", type="password")
+    username = st.sidebar.text_input("Username")
+    password = st.sidebar.text_input("Password", type="password")
 
     if mode == "Login":
-        if st.button("Login"):
-            user = login(u, p)
-            if user:
-                st.session_state.user = {"id": user[0], "role": user[1], "username": u}
+        if st.sidebar.button("Login"):
+            user_id = authenticate_user(username, password)
+            if user_id:
+                st.session_state.logged_in = True
+                st.session_state.username = username
+                st.session_state.user_id = user_id
+                st.toast("Login successful 🎉")
                 st.rerun()
             else:
-                st.error("Invalid credentials")
+                st.sidebar.error("Invalid credentials")
 
     else:
-        if st.button("Register"):
-            register(u, p)
+        if st.sidebar.button("Register"):
+            register_user(username, password)
 
+if not st.session_state.logged_in:
+    login_ui()
     st.stop()
 
-# =========================
-# SIDEBAR MENU + CART
-# =========================
-
-user_id = st.session_state.user["id"]
-role = st.session_state.user["role"]
-
-st.sidebar.header("Menu")
-
+# =====================================================
+# SIDEBAR - MENU + CART
+# =====================================================
+st.sidebar.header("📋 Menu")
 for item, price in MENU.items():
-    col1, col2 = st.sidebar.columns([3,1])
-    col1.write(f"{item} - {price}")
-    if col2.button("+", key=f"add_{item}"):
-        c.execute(
-            "INSERT INTO orders (user_id,item,quantity,price,timestamp) VALUES (?,?,?,?,?)",
-            (user_id, item, 1, price, datetime.now())
-        )
-        conn.commit()
-        st.toast(f"{item} added")
+    st.sidebar.write(f"**{item.capitalize()}** - {price} tk")
 
 st.sidebar.divider()
-st.sidebar.header("Cart")
 
-c.execute("SELECT id,item,quantity,price FROM orders WHERE user_id=?", (user_id,))
-cart = c.fetchall()
+st.sidebar.header("🛒 Your Cart")
 
-total = 0
+orders = get_user_orders(st.session_state.user_id)
 
-for oid, item, qty, price in cart:
-    col1, col2, col3 = st.sidebar.columns([2,1,1])
-    col1.write(f"{item} x{qty}")
-    if col2.button("➕", key=f"inc_{oid}"):
-        c.execute("UPDATE orders SET quantity=quantity+1 WHERE id=?", (oid,))
-        conn.commit()
-        st.rerun()
-    if col3.button("❌", key=f"del_{oid}"):
-        c.execute("DELETE FROM orders WHERE id=?", (oid,))
-        conn.commit()
-        st.rerun()
-    total += qty * price
+if orders:
+    total = 0
+    for item, price, _ in orders:
+        st.sidebar.write(f"{item} - {price} tk")
+        total += price
+    st.sidebar.success(f"Total: {total} tk")
+else:
+    st.sidebar.info("Cart is empty")
 
-st.sidebar.success(f"Total: {total}")
-
-# =========================
-# LOYALTY POINTS
-# =========================
-
-points = total // 100
-c.execute("UPDATE users SET loyalty_points = loyalty_points + ? WHERE id=?",
-          (points, user_id))
-conn.commit()
-
-# =========================
-# FAVORITES
-# =========================
-
-st.sidebar.divider()
-st.sidebar.header("Favorites")
-
-if st.sidebar.button("Save Current Cart as Favorite"):
-    for _, item, _, _ in cart:
-        c.execute("INSERT INTO favorites (user_id,item) VALUES (?,?)",
-                  (user_id, item))
+if st.sidebar.button("🗑 Clear Cart"):
+    c.execute("DELETE FROM orders WHERE user_id=?", (st.session_state.user_id,))
     conn.commit()
-    st.toast("Saved as favorite!")
-
-if st.sidebar.button("Order Favorite"):
-    c.execute("SELECT item FROM favorites WHERE user_id=?", (user_id,))
-    favs = c.fetchall()
-    for (item,) in favs:
-        c.execute("INSERT INTO orders (user_id,item,quantity,price,timestamp) VALUES (?,?,?,?,?)",
-                  (user_id, item, 1, MENU[item], datetime.now()))
-    conn.commit()
-    st.toast("Favorite ordered!")
+    st.sidebar.success("Cart cleared!")
     st.rerun()
 
-# =========================
-# PDF BILL
-# =========================
+# =====================================================
+# AI TOOLS
+# =====================================================
+@tool
+def get_menu(query: str):
+    """
+    Returns restaurant menu and prices.
+    """
+    return f"Our menu: {MENU} (Prices in tk)"
 
-if st.sidebar.button("Download PDF Bill"):
-    file_path = "bill.pdf"
-    doc = SimpleDocTemplate(file_path)
-    elements = []
-    styles = getSampleStyleSheet()
-    elements.append(Paragraph("Restaurant Bill", styles["Title"]))
-    elements.append(Spacer(1, 0.3 * inch))
+@tool
+def place_order(user_input: str):
+    """
+    Extract multiple items and quantities from natural language.
+    Example: '2 pizzas and 1 burger'
+    """
 
-    data = [["Item", "Qty", "Price"]]
-    for _, item, qty, price in cart:
-        data.append([item, str(qty), str(qty * price)])
+    text = user_input.lower()
+    pattern = r"(\d*)\s*(pizza|burger|pasta)"
+    matches = re.findall(pattern, text)
 
-    table = Table(data)
-    table.setStyle(TableStyle([
-        ('GRID', (0,0), (-1,-1), 1, colors.black)
-    ]))
-    elements.append(table)
-    elements.append(Spacer(1, 0.2 * inch))
-    elements.append(Paragraph(f"Total: {total}", styles["Heading2"]))
-    doc.build(elements)
+    if not matches:
+        st.warning("Could not understand the order format.")
+        return "Example format: '2 pizzas and 1 burger'"
 
-    with open(file_path, "rb") as f:
-        st.sidebar.download_button("Download Bill", f, file_name="bill.pdf")
+    total_cost = 0
+    summary = []
 
-# =========================
-# ADMIN DASHBOARD
-# =========================
+    for qty_str, item in matches:
+        qty = int(qty_str) if qty_str else 1
+        price = MENU[item]
+        total_cost += price * qty
 
-if role == "admin":
-    st.title("Admin Dashboard")
+        for _ in range(qty):
+            c.execute(
+                "INSERT INTO orders (user_id, item, price, timestamp) VALUES (?, ?, ?, ?)",
+                (st.session_state.user_id, item, price, datetime.now())
+            )
 
-    c.execute("SELECT SUM(quantity*price) FROM orders")
-    revenue = c.fetchone()[0] or 0
-    st.metric("Total Revenue", revenue)
+        st.toast(f"Added {qty} x {item} 🛒")
+        summary.append(f"{qty} x {item}")
 
-    c.execute("SELECT item, SUM(quantity) FROM orders GROUP BY item")
-    data = c.fetchall()
+    conn.commit()
+    st.success("Order placed successfully!")
 
-    if data:
-        items = [d[0] for d in data]
-        qtys = [d[1] for d in data]
+    return f"✅ Order Confirmed:\n" + "\n".join(summary) + f"\nTotal: {total_cost} tk"
 
-        fig = plt.figure()
-        plt.bar(items, qtys)
-        plt.title("Items Sold")
-        st.pyplot(fig)
+@tool
+def recommend_items(context: str):
+    """
+    Suggest popular or complementary items.
+    """
 
-# =========================
-# PAYMENT (Mock Stripe)
-# =========================
+    suggestions = []
 
-st.sidebar.divider()
-st.sidebar.header("Payment")
+    if "pizza" in context:
+        suggestions.append("burger")
+    if "burger" in context:
+        suggestions.append("pasta")
 
-if st.sidebar.button("Pay Now (Demo)"):
-    if total > 0:
-        st.sidebar.success("Payment Successful (Demo)")
-        c.execute("DELETE FROM orders WHERE user_id=?", (user_id,))
-        conn.commit()
-        st.rerun()
-    else:
-        st.sidebar.warning("Cart is empty")
+    for item in POPULAR_ITEMS:
+        if item not in context:
+            suggestions.append(item)
+
+    suggestions = list(set(suggestions))
+
+    if suggestions:
+        st.info("Showing recommendations 💡")
+        return f"You might also like: {', '.join(suggestions)}"
+    return "No recommendations available."
+
+# =====================================================
+# AI AGENT
+# =====================================================
+llm = ChatGroq(
+    model="llama-3.1-8b-instant",
+    temperature=0
+)
+
+memory = ConversationBufferMemory(
+    memory_key="chat_history",
+    return_messages=True
+)
+
+agent = initialize_agent(
+    tools=[get_menu, place_order, recommend_items],
+    llm=llm,
+    agent=AgentType.CHAT_CONVERSATIONAL_REACT_DESCRIPTION,
+    memory=memory,
+    verbose=False,
+    handle_parsing_errors=True
+)
+
+# =====================================================
+# MAIN CHAT AREA
+# =====================================================
+st.title(f"🤖 Smart Restaurant AI")
+st.caption(f"Welcome back, {st.session_state.username} 👋")
+
+# Previous Orders Section
+st.subheader("📜 Order History")
+if orders:
+    for item, price, time in orders:
+        st.write(f"{item} | {price} tk | {time}")
+else:
+    st.info("No previous orders yet.")
+
+# Chat History
+for msg in st.session_state.messages:
+    with st.chat_message(msg["role"]):
+        st.markdown(msg["content"])
+
+# Chat Input
+if prompt := st.chat_input("How can I help you today?"):
+    st.session_state.messages.append({"role": "user", "content": prompt})
+
+    with st.chat_message("user"):
+        st.markdown(prompt)
+
+    with st.chat_message("assistant"):
+        with st.spinner("🤖 AI is thinking..."):
+            response = agent({"input": prompt})["output"]
+
+        st.markdown(response)
+
+    st.session_state.messages.append({
+        "role": "assistant",
+        "content": response
+    })
