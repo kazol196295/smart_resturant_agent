@@ -74,6 +74,6 @@ if prompt := st.chat_input("How can I help you?"):
 
     with st.chat_message("assistant"):
         # Use dict interface to satisfy input key validation
-        response = agent({"input": prompt})["output"]
+        response = agent({"question": prompt})["output"]
         st.markdown(response)
         st.session_state.messages.append({"role": "assistant", "content": response})
