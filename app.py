@@ -7,9 +7,23 @@ from langchain_groq import ChatGroq
 from langchain.agents import tool, initialize_agent, AgentType
 from langchain.memory import ConversationBufferMemory
 
-# ===============================
-# 1️⃣ DATABASE SETUP
-# ===============================
+# =====================================================
+# PAGE CONFIG
+# =====================================================
+st.set_page_config(
+    page_title="Smart Restaurant AI",
+    page_icon="🍕",
+    layout="wide"
+)
+
+st.markdown(
+    "<style>div.block-container{padding-top:1rem;}</style>",
+    unsafe_allow_html=True
+)
+
+# =====================================================
+# DATABASE
+# =====================================================
 conn = sqlite3.connect("restaurant.db", check_same_thread=False)
 c = conn.cursor()
 
@@ -30,11 +44,12 @@ CREATE TABLE IF NOT EXISTS orders (
     timestamp TEXT
 )
 """)
+
 conn.commit()
 
-# ===============================
-# 2️⃣ MENU
-# ===============================
+# =====================================================
+# MENU DATA
+# =====================================================
 MENU = {
     "pizza": 500,
     "burger": 300,
@@ -43,9 +58,9 @@ MENU = {
 
 POPULAR_ITEMS = ["pizza", "burger"]
 
-# ===============================
-# 3️⃣ SESSION STATE
-# ===============================
+# =====================================================
+# SESSION STATE
+# =====================================================
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 if "username" not in st.session_state:
@@ -55,9 +70,9 @@ if "user_id" not in st.session_state:
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# ===============================
-# 4️⃣ AUTH FUNCTIONS
-# ===============================
+# =====================================================
+# AUTH FUNCTIONS
+# =====================================================
 def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
@@ -87,12 +102,12 @@ def get_user_orders(user_id):
     )
     return c.fetchall()
 
-# ===============================
-# 5️⃣ LOGIN UI
-# ===============================
+# =====================================================
+# LOGIN UI
+# =====================================================
 def login_ui():
-    st.sidebar.title("Login / Register")
-    mode = st.sidebar.radio("Mode", ["Login", "Register"])
+    st.sidebar.title("🔐 Login / Register")
+    mode = st.sidebar.radio("Select Mode", ["Login", "Register"])
 
     username = st.sidebar.text_input("Username")
     password = st.sidebar.text_input("Password", type="password")
@@ -104,9 +119,11 @@ def login_ui():
                 st.session_state.logged_in = True
                 st.session_state.username = username
                 st.session_state.user_id = user_id
+                st.toast("Login successful 🎉")
                 st.rerun()
             else:
-                st.error("Invalid credentials")
+                st.sidebar.error("Invalid credentials")
+
     else:
         if st.sidebar.button("Register"):
             register_user(username, password)
@@ -115,24 +132,49 @@ if not st.session_state.logged_in:
     login_ui()
     st.stop()
 
-# ===============================
-# 6️⃣ AI TOOLS
-# ===============================
+# =====================================================
+# SIDEBAR - MENU + CART
+# =====================================================
+st.sidebar.header("📋 Menu")
+for item, price in MENU.items():
+    st.sidebar.write(f"**{item.capitalize()}** - {price} tk")
 
+st.sidebar.divider()
+
+st.sidebar.header("🛒 Your Cart")
+
+orders = get_user_orders(st.session_state.user_id)
+
+if orders:
+    total = 0
+    for item, price, _ in orders:
+        st.sidebar.write(f"{item} - {price} tk")
+        total += price
+    st.sidebar.success(f"Total: {total} tk")
+else:
+    st.sidebar.info("Cart is empty")
+
+if st.sidebar.button("🗑 Clear Cart"):
+    c.execute("DELETE FROM orders WHERE user_id=?", (st.session_state.user_id,))
+    conn.commit()
+    st.sidebar.success("Cart cleared!")
+    st.rerun()
+
+# =====================================================
+# AI TOOLS
+# =====================================================
 @tool
 def get_menu(query: str):
     """
-    Returns the restaurant menu and prices.
-    Use when user asks about available food or prices.
+    Returns restaurant menu and prices.
     """
     return f"Our menu: {MENU} (Prices in tk)"
 
 @tool
 def place_order(user_input: str):
     """
-    Parses natural language order like:
-    'I want 2 pizzas and 1 burger'
-    Extracts items and quantities, saves to DB.
+    Extract multiple items and quantities from natural language.
+    Example: '2 pizzas and 1 burger'
     """
 
     text = user_input.lower()
@@ -140,10 +182,11 @@ def place_order(user_input: str):
     matches = re.findall(pattern, text)
 
     if not matches:
-        return "Sorry, I couldn’t understand the order. Example: '2 pizzas and 1 burger'."
+        st.warning("Could not understand the order format.")
+        return "Example format: '2 pizzas and 1 burger'"
 
-    summary = []
     total_cost = 0
+    summary = []
 
     for qty_str, item in matches:
         qty = int(qty_str) if qty_str else 1
@@ -156,38 +199,41 @@ def place_order(user_input: str):
                 (st.session_state.user_id, item, price, datetime.now())
             )
 
+        st.toast(f"Added {qty} x {item} 🛒")
         summary.append(f"{qty} x {item}")
 
     conn.commit()
+    st.success("Order placed successfully!")
 
-    return f"✅ Order confirmed:\n" + "\n".join(summary) + f"\nTotal: {total_cost} tk"
+    return f"✅ Order Confirmed:\n" + "\n".join(summary) + f"\nTotal: {total_cost} tk"
 
 @tool
 def recommend_items(context: str):
     """
-    Suggest popular or complementary items based on user's order.
+    Suggest popular or complementary items.
     """
 
     suggestions = []
 
-    if "pizza" in context.lower():
+    if "pizza" in context:
         suggestions.append("burger")
-    if "burger" in context.lower():
+    if "burger" in context:
         suggestions.append("pasta")
 
     for item in POPULAR_ITEMS:
-        if item not in context.lower():
+        if item not in context:
             suggestions.append(item)
 
     suggestions = list(set(suggestions))
 
     if suggestions:
+        st.info("Showing recommendations 💡")
         return f"You might also like: {', '.join(suggestions)}"
     return "No recommendations available."
 
-# ===============================
-# 7️⃣ AI AGENT SETUP
-# ===============================
+# =====================================================
+# AI AGENT
+# =====================================================
 llm = ChatGroq(
     model="llama-3.1-8b-instant",
     temperature=0
@@ -198,51 +244,48 @@ memory = ConversationBufferMemory(
     return_messages=True
 )
 
-tools = [get_menu, place_order, recommend_items]
-
 agent = initialize_agent(
-    tools,
-    llm,
+    tools=[get_menu, place_order, recommend_items],
+    llm=llm,
     agent=AgentType.CHAT_CONVERSATIONAL_REACT_DESCRIPTION,
     memory=memory,
     verbose=False,
     handle_parsing_errors=True
 )
 
-# ===============================
-# 8️⃣ MAIN UI
-# ===============================
-st.title(f"🍕 Smart Restaurant AI - Welcome {st.session_state.username}")
+# =====================================================
+# MAIN CHAT AREA
+# =====================================================
+st.title(f"🤖 Smart Restaurant AI")
+st.caption(f"Welcome back, {st.session_state.username} 👋")
 
-# 🔹 Show Previous Orders
-st.subheader("📜 Previous Orders")
-orders = get_user_orders(st.session_state.user_id)
-
+# Previous Orders Section
+st.subheader("📜 Order History")
 if orders:
     for item, price, time in orders:
-        st.write(f"- {item} | {price} tk | {time}")
+        st.write(f"{item} | {price} tk | {time}")
 else:
     st.info("No previous orders yet.")
 
-# 🔹 Chat Display
+# Chat History
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
-# 🔹 Chat Input
-if prompt := st.chat_input("How can I help you?"):
+# Chat Input
+if prompt := st.chat_input("How can I help you today?"):
     st.session_state.messages.append({"role": "user", "content": prompt})
+
     with st.chat_message("user"):
         st.markdown(prompt)
 
     with st.chat_message("assistant"):
-        with st.spinner("Thinking..."):
+        with st.spinner("🤖 AI is thinking..."):
             response = agent({"input": prompt})["output"]
 
         st.markdown(response)
-        st.session_state.messages.append({"role": "assistant", "content": response})
 
-# 🔹 Bill Button
-if st.button("💳 Show Total Bill"):
-    total = sum(order[1] for order in orders)
-    st.success(f"Total Bill: {total} tk")
+    st.session_state.messages.append({
+        "role": "assistant",
+        "content": response
+    })
