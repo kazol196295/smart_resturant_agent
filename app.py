@@ -114,15 +114,25 @@ MENU = {
 # -------------------------------
 @tool
 def get_menu(query: str):
+    """
+    Returns the restaurant menu and prices.
+    Use this tool when the user asks about available dishes or prices.
+    """
     return f"Our menu: {MENU} (Prices in tk)"
+
 
 @tool
 def place_order(item: str):
+    """
+    Confirms an order for a specific item and saves it in the database.
+    Use this tool when the user wants to place an order.
+    """
     item_lower = item.lower()
     if item_lower in MENU:
-        # Save to DB
-        c.execute("INSERT INTO orders (user_id, item, price, timestamp) VALUES (?, ?, ?, ?)",
-                  (st.session_state.user_id, item_lower, MENU[item_lower], datetime.now()))
+        c.execute(
+            "INSERT INTO orders (user_id, item, price, timestamp) VALUES (?, ?, ?, ?)",
+            (st.session_state.user_id, item_lower, MENU[item_lower], datetime.now())
+        )
         conn.commit()
         return f"Order confirmed: 1 {item_lower}. Total: {MENU[item_lower]} tk."
     return "Sorry, that item isn't on the menu."
