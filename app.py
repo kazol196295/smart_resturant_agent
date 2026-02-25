@@ -306,58 +306,62 @@ def generate_pdf_bill(username, orders, total):
     return buffer
 
 # =====================================================
-# MAIN LAYOUT (CHAT LEFT, HISTORY RIGHT)
+# 1. PERMANENT HEADER (Always at the top)
 # =====================================================
-# Create two columns: col1 for Chat (70%), col2 for History/Bill (30%)
+# This stays outside columns so it's always centered at the top
+st.title("🤖 Smart Restaurant AI")
+st.caption(f"Welcome back, {st.session_state.username} 👋 | CSE Graduate @ KUET") 
+st.divider()
+
+# =====================================================
+# 2. MAIN LAYOUT (CHAT LEFT, HISTORY RIGHT)
+# =====================================================
 col1, col2 = st.columns([0.7, 0.3])
 
 with col1:
-    st.title(f"🤖 Smart Restaurant AI")
-    st.caption(f"Welcome back, {st.session_state.username} 👋")
-
-    # Display Chat History
+    # --- CHAT AREA ---
+    # Display message history
     for msg in st.session_state.messages:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
 
-    # Chat Input
+    # Input field at the bottom of the chat column
     if prompt := st.chat_input("How can I help you today?"):
         st.session_state.messages.append({"role": "user", "content": prompt})
-        
-        # Rerun to show user message immediately before AI thinks
         st.rerun()
 
-# This handles the AI response after the rerun
+# AI Processing Logic (Placed here to update state before column 2 renders)
 if st.session_state.messages and st.session_state.messages[-1]["role"] == "user":
     with col1:
         with st.chat_message("assistant"):
-            with st.spinner("🤖 AI is thinking..."):
-                current_prompt = st.session_state.messages[-1]["content"]
-                response = agent({"input": current_prompt})["output"]
+            with st.spinner("🤖 Thinking..."):
+                response = agent({"input": st.session_state.messages[-1]["content"]})["output"]
                 st.markdown(response)
                 st.session_state.messages.append({"role": "assistant", "content": response})
-                # Rerun to update the Order History in the right column
-                st.rerun()
+                st.rerun() # Refresh to update the history in col2 immediately
 
 # =====================================================
-# RIGHT SIDEBAR / DASHBOARD (ALWAYS UPDATED)
+# 3. RIGHT SIDEBAR / DASHBOARD (ALWAYS UPDATED)
 # =====================================================
 with col2:
     st.subheader("📜 Live Bill & History")
+    
+    # Always fetch fresh data for the right side
     current_orders = get_user_orders(st.session_state.user_id)
     
     if current_orders:
         total_bill = sum(order[1] for order in current_orders)
         
+        # Display each item [cite: 220, 224]
         for item, price, time in current_orders:
-            st.write(f"**{item.capitalize()}** - {price} tk")
+            st.write(f"**{item.capitalize()}**")
+            st.caption(f"{price} tk | {time.split('.')[0]}")
         
         st.divider()
-        st.metric(label="Total Amount", value=f"{total_bill} tk")
+        st.metric(label="Total Amount Due", value=f"{total_bill} tk")
         
-        # --- PDF BILL GENERATION ---
+        # --- PDF DOWNLOAD BUTTON ---
         pdf_file = generate_pdf_bill(st.session_state.username, current_orders, total_bill)
-        
         st.download_button(
             label="📄 Download PDF Bill",
             data=pdf_file,
@@ -366,4 +370,4 @@ with col2:
             use_container_width=True
         )
     else:
-        st.info("No orders yet.")
+        st.info("No orders placed yet.")
