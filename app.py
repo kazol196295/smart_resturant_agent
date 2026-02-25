@@ -1,5 +1,6 @@
 import streamlit as st
-from langchain_community.llms import Groq
+# Change the import to use the dedicated groq package
+from langchain_groq import ChatGroq 
 from langchain.agents import tool, initialize_agent, AgentType
 
 # 1. Menu Configuration (Based on your provided PDF logic)
@@ -38,14 +39,18 @@ with st.sidebar:
 
 # 4. Agent Execution Logic
 if api_key:
-    llm = Groq(api_key=api_key, model_name="llama3-8b-8192")
+    # Use ChatGroq instead of the community LLM wrapper
+    llm = ChatGroq(groq_api_key=api_key, model_name="llama3-8b-8192")
     tools = [get_menu, place_order]
+    
+    # Initialize the agent
     agent = initialize_agent(
         tools, 
         llm, 
         agent=AgentType.CHAT_CONVERSATIONAL_REACT_DESCRIPTION,
         verbose=True,
-        memory=None # You can add ConversationBufferMemory later
+        # Streamlit needs a way to handle memory across reruns
+        handle_parsing_errors=True 
     )
 
     # Display Chat
