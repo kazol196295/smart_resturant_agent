@@ -40,9 +40,12 @@ with st.sidebar:
 # 4. Agent Execution Logic
 if api_key:
     # Use ChatGroq instead of the community LLM wrapper
+    import os
+    from langchain_groq import ChatGroq
+
     llm = ChatGroq(
-    groq_api_key=api_key,
-    model="llama3-8b-8192"
+    model="llama3-8b-8192",
+    temperature=0
     )
     tools = [get_menu, place_order]
     
