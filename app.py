@@ -1,16 +1,15 @@
 import streamlit as st
-# Change the import to use the dedicated groq package
-from langchain_groq import ChatGroq 
+from langchain_groq import ChatGroq
 from langchain.agents import tool, initialize_agent, AgentType
 
-# 1. Menu Configuration (Based on your provided PDF logic)
+# 1. Menu
 MENU = {
     "pizza": 500,
     "burger": 300,
     "pasta": 400
 }
 
-# 2. Define Tools for the Agent
+# 2. Tools
 @tool
 def get_menu(query: str):
     """Returns the restaurant menu and prices."""
@@ -24,55 +23,40 @@ def place_order(item: str):
         return f"Order confirmed: 1 {item_lower}. Total: {MENU[item_lower]} tk."
     return "Sorry, that item isn't on the menu."
 
-# 3. Streamlit UI Setup
+# 3. UI
 st.set_page_config(page_title="Smart Restaurant Agent", page_icon="🍕")
 st.title("Smart Restaurant AI 🤖")
 
-# Initialize Chat History
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# Sidebar for API Key (Better for deployment)
-with st.sidebar:
-    api_key = st.text_input("Enter Groq API Key", type="password")
-    st.info("Get a free key at console.groq.com")
-
-# 4. Agent Execution Logic
-if api_key:
-    # Use ChatGroq instead of the community LLM wrapper
-    import os
-    from langchain_groq import ChatGroq
-
-    llm = ChatGroq(
+# 4. LLM (uses secret from Streamlit Cloud)
+llm = ChatGroq(
     model="llama3-8b-8192",
     temperature=0
-    )
-    tools = [get_menu, place_order]
-    
-    # Initialize the agent
-    agent = initialize_agent(
-        tools, 
-        llm, 
-        agent=AgentType.CHAT_CONVERSATIONAL_REACT_DESCRIPTION,
-        verbose=True,
-        # Streamlit needs a way to handle memory across reruns
-        handle_parsing_errors=True 
-    )
+)
 
-    # Display Chat
-    for message in st.session_state.messages:
-        with st.chat_message(message["role"]):
-            st.markdown(message["content"])
+tools = [get_menu, place_order]
 
-    if prompt := st.chat_input("How can I help you?"):
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        with st.chat_message("user"):
-            st.markdown(prompt)
+agent = initialize_agent(
+    tools,
+    llm,
+    agent=AgentType.CHAT_CONVERSATIONAL_REACT_DESCRIPTION,
+    verbose=True,
+    handle_parsing_errors=True
+)
 
-        with st.chat_message("assistant"):
-            # The agent decides whether to use a tool or just chat
-            response = agent.run(input=prompt, chat_history=st.session_state.messages)
-            st.markdown(response)
-            st.session_state.messages.append({"role": "assistant", "content": response})
-else:
-    st.warning("Please enter your Groq API key in the sidebar to start.")
+# Display chat
+for message in st.session_state.messages:
+    with st.chat_message(message["role"]):
+        st.markdown(message["content"])
+
+if prompt := st.chat_input("How can I help you?"):
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    with st.chat_message("user"):
+        st.markdown(prompt)
+
+    with st.chat_message("assistant"):
+        response = agent.run(input=prompt)
+        st.markdown(response)
+        st.session_state.messages.append({"role": "assistant", "content": response})
