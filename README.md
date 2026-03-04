@@ -306,7 +306,7 @@ Contributions are welcome! To contribute:
 
 - **Issues:** Create an issue on GitHub
 - **Questions:** Open a discussion thread
-- **Email:** your-email@example.com
+- **Email:** kazol196295@gmail.com
 
 ---
 
